@@ -1,0 +1,41 @@
+name:                   box-view
+version:                0.1
+synopsis:               Simple implementation of the Box View API
+homepage:               https://www.github.com/docmunch/haskell-box-view
+license:                MIT
+license-file:           LICENSE
+author:                 Sean Leather
+maintainer:             sean@docmunch.com
+copyright:              2014 Daggerboard, Inc.
+category:               Web
+build-type:             Simple
+-- extra-source-files:     README.md
+cabal-version:          >=1.10
+
+library
+  hs-source-dirs:       src
+  ghc-options:          -Wall
+  default-language:     Haskell2010
+  default-extensions:
+                        LambdaCase
+                        OverloadedStrings
+                        RecordWildCards
+                        ScopedTypeVariables
+                        TemplateHaskell
+  exposed-modules:
+                        Network.BoxView
+  build-depends:
+                        aeson >= 0.6 && < 0.8,
+                        attoparsec,
+                        base >= 4.6 && < 4.7,
+                        bytestring,
+                        case-insensitive,
+                        conduit,
+                        data-default-class,
+                        http-client-multipart,
+                        http-conduit >= 2.0 && < 3.0,
+                        http-types,
+                        text >= 0.11 && < 2.0,
+                        time,
+                        transformers
+
