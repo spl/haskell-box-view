@@ -5,6 +5,7 @@ module Network.BoxView (
   DownloadFormat(..),
   Dim(..),
   UpdateInfo(..),
+  SessionInfo(..),
   uploadDoc,
   downloadDoc,
   downloadThumb,
@@ -12,6 +13,7 @@ module Network.BoxView (
   getDocEntries,
   updateDocInfo,
   deleteDoc,
+  createSession,
 ) where
 
 --------------------------------------------------------------------------------
@@ -20,7 +22,7 @@ import Control.Applicative ((<$>), (<*>), (<*), (<|>), some)
 import Control.Category ((>>>))
 import Control.Monad (liftM, ap)
 import Control.Monad.IO.Class (MonadIO(..))
-import Data.Aeson (Value(String), ToJSON(..), FromJSON(..), (.=), (.:))
+import Data.Aeson (Value(..), ToJSON(..), FromJSON(..), (.=), (.:))
 import Data.Aeson.TH (deriveJSON, deriveToJSON, defaultOptions, Options(..))
 import qualified Data.Aeson as A
 import qualified Data.Attoparsec.Text as P
@@ -29,6 +31,7 @@ import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (toLower, toUpper)
 import Data.Default.Class (Default(..))
+import qualified Data.HashMap.Strict as HM
 import Data.Monoid ((<>))
 import Data.String (fromString)
 import Data.Text (Text)
@@ -99,12 +102,12 @@ instance FromJSON DocStatus where
 
 -- | Represents a file that has been submitted to the View API
 data DocInfo = DocInfo
-  { docId         :: !Text       -- ^ Document ID
+  { docId         :: !Text       -- ^ Unique document identifier
   , docStatus     :: !DocStatus  -- ^ Current status of conversion
   , docName       :: !Text       -- ^ Document name
-  , docCreatedAt  :: !UTCTime    -- ^ Date of upload
+  , docCreatedAt  :: !UTCTime    -- ^ Time of upload
   }
-  deriving (Eq, Read, Show)
+  deriving (Eq, Show)
 
 instance ToJSON DocInfo where
   toJSON (DocInfo {..}) = A.object
@@ -159,7 +162,7 @@ data UploadRequest = UploadRequest
   , uploadThumbnails  :: ![Dim]  -- ^ List of thumbnail dimensions (optional)
   , uploadNonSvg      :: !Bool   -- ^ Whether to also create the non-svg version
   }
-  deriving (Read, Show)
+  deriving (Show)
 
 instance ToJSON UploadRequest where
   toJSON (UploadRequest {..}) = A.object $
@@ -222,6 +225,43 @@ mkExt DownloadPdf      = ".pdf"
 mkExt DownloadZip      = ".zip"
 
 --------------------------------------------------------------------------------
+
+data SessionInfo = SessionInfo
+  { sessionId         :: !Text     -- ^ Unique session identifier
+  , sessionExpiresAt  :: !UTCTime  -- ^ Time when the session expires
+  }
+  deriving (Eq, Show)
+
+instance ToJSON SessionInfo where
+  toJSON (SessionInfo {..}) = A.object
+    [ "type"        .= String "session"
+    , "id"          .= String sessionId
+    , "expires_at"  .= toJSON sessionExpiresAt
+    ]
+
+instance FromJSON SessionInfo where
+  parseJSON = A.withObject "SessionInfo" $ \o -> do
+    "session" :: Text <- o .: "type"
+    SessionInfo <$> o .: "id"
+                <*> o .: "expires_at"
+
+--------------------------------------------------------------------------------
+
+-- | Specifies when a session will expire
+data SessionTime
+  = SessionDefault             -- ^ Default expiration (duration: 60 minutes)
+  | SessionDuration  !Int      -- ^ Duration in minutes until the session expires
+  | SessionExpiresAt !UTCTime  -- ^ Time when the session expires
+
+instance ToJSON SessionTime where
+  toJSON SessionDefault        = A.object []
+  toJSON (SessionDuration  n)  = A.object ["duration"   .= toJSON n]
+  toJSON (SessionExpiresAt tm) = A.object ["expires_at" .= toJSON tm]
+
+instance Default SessionTime where
+  def = SessionDefault
+
+--------------------------------------------------------------------------------
 -- Exported
 
 -- | Upload a document according to the 'UploadRequest'
@@ -262,7 +302,7 @@ getDocInfo apiKey did mgr = do
 getDocEntries
   :: MonadIO m
   => ByteString       -- ^ API key
-  -> DocEntriesQuery  -- ^ Query parameters (use 'def' for defaults)
+  -> DocEntriesQuery  -- ^ Query parameters (use 'def' for the default)
   -> Manager          -- ^ HTTP manager
   -> m [DocInfo]
 getDocEntries apiKey params mgr = do
@@ -280,7 +320,7 @@ getDocEntries apiKey params mgr = do
 updateDocInfo
   :: MonadIO m
   => ByteString       -- ^ API key
-  -> UpdateInfo       -- ^ Metadata to be updated (use 'def' for defaults)
+  -> UpdateInfo       -- ^ Metadata to be updated (use 'def' for the default)
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
   -> m DocInfo
@@ -349,6 +389,30 @@ deleteDoc apiKey did mgr = do
          addAuthHeader apiKey
   _ <- H.httpLbs req mgr
   return ()
+
+-- | Create a session for viewing a document
+--
+-- Note: Sessions can only be created for documents that have a 'Done' status.
+createSession
+  :: MonadIO m
+  => ByteString       -- ^ API key
+  -> Text             -- ^ Document ID
+  -> SessionTime      -- ^ Session time (use 'def' for the default)
+  -> Manager          -- ^ HTTP manager
+  -> m SessionInfo
+createSession apiKey did sessionTime mgr = do
+  let Object sessionObj = toJSON sessionTime
+  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/sessions") >>=
+         setMethod POST >>=
+         setJSONBody (sessionObj <> HM.singleton "document_id" (toJSON did)) >>=
+         addAuthHeader apiKey
+  liftIO $ print req
+  rsp <- H.httpLbs req mgr
+  case A.decode' $ H.responseBody rsp of
+    Just obj -> return obj
+    Nothing ->
+      fail $  "createSession: Can't decode JSON body from response: "
+           ++ show rsp
 
 --------------------------------------------------------------------------------
 -- Helpers
