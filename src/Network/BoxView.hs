@@ -1,5 +1,6 @@
 module Network.BoxView (
   ApiKey,
+  DocId,
   DocInfo(..),
   DocStatus(..),
   DocEntriesQuery(..),
@@ -68,6 +69,24 @@ instance FromJSON ApiKey where
 
 --------------------------------------------------------------------------------
 
+-- | Unique document identifier.
+--
+-- Note: Use the 'IsString' instance (e.g. with @OverloadedStrings@) to
+-- construct.
+newtype DocId = DocId { fromDocId :: ByteString }
+  deriving (Eq, IsString)
+
+instance Show DocId where
+  show = fromByteString . fromDocId
+
+instance ToJSON DocId where
+  toJSON = String . TS.decodeUtf8 . fromDocId
+
+instance FromJSON DocId where
+  parseJSON = A.withText "DocId" $ return . DocId . TS.encodeUtf8
+
+--------------------------------------------------------------------------------
+
 -- | Thumbnail dimensions
 data Dim = Dim
   { width   :: !Int  -- ^ 16 <= width <= 1024
@@ -124,7 +143,7 @@ instance FromJSON DocStatus where
 
 -- | Represents a file that has been submitted to the View API
 data DocInfo = DocInfo
-  { docId         :: !Text       -- ^ Unique document identifier
+  { docId         :: !DocId      -- ^ Unique document identifier
   , docStatus     :: !DocStatus  -- ^ Current status of conversion
   , docName       :: !Text       -- ^ Document name
   , docCreatedAt  :: !UTCTime    -- ^ Time of upload
@@ -134,7 +153,7 @@ data DocInfo = DocInfo
 instance ToJSON DocInfo where
   toJSON (DocInfo {..}) = A.object
     [ "type"        .= String "document"
-    , "id"          .= String docId
+    , "id"          .= toJSON docId
     , "status"      .= toJSON docStatus
     , "name"        .= String docName
     , "created_at"  .= toJSON docCreatedAt
@@ -307,12 +326,12 @@ uploadDoc apiKey uploadReq@(UploadRequest {..}) mgr = do
 getDocInfo
   :: MonadIO m
   => ApiKey
-  -> Text             -- ^ Document ID
+  -> DocId
   -> Manager          -- ^ HTTP manager
   -> m DocInfo
 getDocInfo apiKey did mgr = do
   req <- newApiRequest apiKey $ "https://view-api.box.com/1/documents/"
-                              <> TS.encodeUtf8 did
+                              <> fromDocId did
   H.httpLbs req mgr >>= jsonContent "getDocInfo"
 
 -- | Get a document collection according to the optional 'DocEntriesQuery'
@@ -332,11 +351,11 @@ updateDocInfo
   :: MonadIO m
   => ApiKey
   -> UpdateInfo       -- ^ Metadata to be updated (use 'def' for the default)
-  -> Text             -- ^ Document ID
+  -> DocId
   -> Manager          -- ^ HTTP manager
   -> m DocInfo
 updateDocInfo apiKey updateInfo did mgr = do
-  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> TS.encodeUtf8 did) >>=
+  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> fromDocId did) >>=
          setMethod PUT >>=
          setJSONBody updateInfo
   H.httpLbs req mgr >>= jsonContent "updateDocInfo"
@@ -346,13 +365,13 @@ downloadDoc
   :: MonadIO m
   => ApiKey
   -> DownloadFormat   -- ^ Download format of the file
-  -> Text             -- ^ Document ID
+  -> DocId
   -> Manager          -- ^ HTTP manager
   -> m (MimeType, BL.ByteString)
 downloadDoc apiKey format did mgr = do
   let fileName = "content" ++ mkExt format
   req <- newApiRequest apiKey $ "https://view-api.box.com/1/documents/"
-                              <> TS.encodeUtf8 did <> "/" <> fromString fileName
+                              <> fromDocId did <> "/" <> fromString fileName
   H.httpLbs req mgr >>= mimeTypeContent
 
 -- | Download a document's thumbnail. If the thumbnail is ready, a 'Right' value
@@ -368,12 +387,12 @@ downloadThumb
   :: MonadIO m
   => ApiKey
   -> Dim              -- ^ Dimensions
-  -> Text             -- ^ Document ID
+  -> DocId
   -> Manager          -- ^ HTTP manager
   -> m (Either Int (MimeType, BL.ByteString))
 downloadThumb apiKey dim did mgr = do
   req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/"
-                               <> TS.encodeUtf8 did <> "/thumbnail") >>=
+                               <> fromDocId did <> "/thumbnail") >>=
          setQuery (dimToQuery dim)
   rsp <- H.httpLbs req mgr
   case statusCode (H.responseStatus rsp) of
@@ -385,11 +404,11 @@ downloadThumb apiKey dim did mgr = do
 deleteDoc
   :: MonadIO m
   => ApiKey
-  -> Text             -- ^ Document ID
+  -> DocId
   -> Manager          -- ^ HTTP manager
   -> m ()
 deleteDoc apiKey did mgr = do
-  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> TS.encodeUtf8 did) >>=
+  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> fromDocId did) >>=
          setMethod DELETE
   _ <- H.httpLbs req mgr
   return ()
@@ -400,7 +419,7 @@ deleteDoc apiKey did mgr = do
 createSession
   :: MonadIO m
   => ApiKey
-  -> Text             -- ^ Document ID
+  -> DocId
   -> SessionTime      -- ^ Session time (use 'def' for the default)
   -> Manager          -- ^ HTTP manager
   -> m SessionInfo
