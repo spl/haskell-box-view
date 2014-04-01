@@ -6,6 +6,7 @@ module Network.BoxView (
   Dim(..),
   UpdateInfo(..),
   SessionInfo(..),
+  SessionTheme(..),
   uploadDoc,
   downloadDoc,
   downloadThumb,
@@ -14,6 +15,8 @@ module Network.BoxView (
   updateDocInfo,
   deleteDoc,
   createSession,
+  makeSessionViewUrl,
+  makeSessionAssetsUrl,
 ) where
 
 --------------------------------------------------------------------------------
@@ -262,6 +265,16 @@ instance Default SessionTime where
   def = SessionDefault
 
 --------------------------------------------------------------------------------
+
+-- | Enumeration for session view theme
+data SessionTheme = LightTheme | DarkTheme
+  deriving (Eq, Enum, Bounded, Read, Show)
+
+themeStyleToQuery :: SessionTheme -> Query
+themeStyleToQuery ts =
+  [("theme", Just $ case ts of { LightTheme -> "light"; DarkTheme  -> "dark" })]
+
+--------------------------------------------------------------------------------
 -- Exported
 
 -- | Upload a document according to the 'UploadRequest'
@@ -413,6 +426,24 @@ createSession apiKey did sessionTime mgr = do
     Nothing ->
       fail $  "createSession: Can't decode JSON body from response: "
            ++ show rsp
+
+-- | Construct the URL for viewing a session
+makeSessionViewUrl
+  :: Text          -- ^ Session ID
+  -> SessionTheme  -- ^ Session theme
+  -> ByteString
+makeSessionViewUrl sessionId themeStyle =
+  "https://view-api.box.com/1/sessions/"
+  <> TS.encodeUtf8 sessionId <> "/view"
+  <> renderQuery True (themeStyleToQuery themeStyle)
+
+-- | Construct the URL for Viewer.js using the assets stored at Box
+makeSessionAssetsUrl
+  :: Text         -- ^ Session ID
+  -> ByteString
+makeSessionAssetsUrl sessionId =
+  "https://view-api.box.com/1/sessions/"
+  <> TS.encodeUtf8 sessionId <> "/assets"
 
 --------------------------------------------------------------------------------
 -- Helpers
