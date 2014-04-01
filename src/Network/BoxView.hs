@@ -8,6 +8,7 @@ module Network.BoxView (
   DownloadFormat(..),
   Dim(..),
   UpdateInfo(..),
+  UploadRequest(..),
   SessionInfo(..),
   SessionTheme(..),
   uploadDoc,
