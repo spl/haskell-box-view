@@ -30,6 +30,7 @@ import qualified Data.CaseInsensitive as CI
 import Data.Char (toLower, toUpper)
 import Data.Default.Class (Default(..))
 import Data.Monoid ((<>))
+import Data.String (fromString)
 import Data.Text (Text)
 import qualified Data.Text as TS
 import qualified Data.Text.Encoding as TS
@@ -395,7 +396,7 @@ maybeToList :: (a -> b) -> Maybe a -> [b]
 maybeToList f = maybe [] (return . f)
 
 showBS :: Show a => a -> ByteString
-showBS = TS.encodeUtf8 . TS.pack . show
+showBS = fromString . show
 
 readsBS :: Read a => ByteString -> [(a, String)]
 readsBS = reads . TS.unpack . TS.decodeUtf8
