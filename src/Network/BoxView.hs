@@ -131,8 +131,8 @@ instance FromJSON DocInfo where
 
 --------------------------------------------------------------------------------
 
--- | Internal type for 'FromJSON' instance. Used in 'getDocs'.
-newtype DocInfoList = DocInfoList [DocInfo]
+-- | Internal type for 'FromJSON' instance. Used in 'getDocEntries'.
+newtype DocInfoList = DocInfoList { fromDocInfoList :: [DocInfo] }
 
 instance FromJSON DocInfoList where
   parseJSON = A.withObject "DocInfoList" $ \o1 -> do
@@ -287,12 +287,7 @@ uploadDoc
 uploadDoc apiKey uploadReq mgr = do
   req <- fromUploadRequest uploadReq >>=
          addAuthHeader apiKey
-  rsp <- H.httpLbs req mgr
-  case A.decode' $ H.responseBody rsp of
-    Just body -> return body
-    Nothing ->
-      fail $  "uploadDoc: Can't decode JSON body from response: "
-           ++ show rsp
+  H.httpLbs req mgr >>= jsonContent "uploadDoc"
 
 -- | Get a document's metadata
 getDocInfo
@@ -304,12 +299,7 @@ getDocInfo
 getDocInfo apiKey did mgr = do
   req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did) >>=
          addAuthHeader apiKey
-  rsp <- H.httpLbs req mgr
-  case A.decode' $ H.responseBody rsp of
-    Just obj -> return obj
-    Nothing ->
-      fail $  "getDocInfo: Can't decode JSON body from response: "
-           ++ show rsp
+  H.httpLbs req mgr >>= jsonContent "getDocInfo"
 
 -- | Get a document collection according to the optional 'DocEntriesQuery'
 getDocEntries
@@ -322,12 +312,7 @@ getDocEntries apiKey params mgr = do
   req <- liftIO (H.parseUrl "https://view-api.box.com/1/documents") >>=
          setJSONBody params >>=
          addAuthHeader apiKey
-  rsp <- H.httpLbs req mgr
-  case A.decode' $ H.responseBody rsp of
-    Just (DocInfoList entries) -> return entries
-    Nothing ->
-      fail $  "getDocEntries: Can't decode JSON body from response: "
-           ++ show rsp
+  liftM fromDocInfoList $ H.httpLbs req mgr >>= jsonContent "getDocEntries"
 
 -- | Update a document's metadata
 updateDocInfo
@@ -342,12 +327,7 @@ updateDocInfo apiKey updateInfo did mgr = do
          setMethod PUT >>=
          setJSONBody updateInfo >>=
          addAuthHeader apiKey
-  rsp <- H.httpLbs req mgr
-  case A.decode' $ H.responseBody rsp of
-    Just obj -> return obj
-    Nothing ->
-      fail $  "updateDocInfo: Can't decode JSON body from response: "
-           ++ show rsp
+  H.httpLbs req mgr >>= jsonContent "updateDocInfo"
 
 -- | Download a document
 downloadDoc
@@ -419,13 +399,7 @@ createSession apiKey did sessionTime mgr = do
          setMethod POST >>=
          setJSONBody (sessionObj <> HM.singleton "document_id" (toJSON did)) >>=
          addAuthHeader apiKey
-  liftIO $ print req
-  rsp <- H.httpLbs req mgr
-  case A.decode' $ H.responseBody rsp of
-    Just obj -> return obj
-    Nothing ->
-      fail $  "createSession: Can't decode JSON body from response: "
-           ++ show rsp
+  H.httpLbs req mgr >>= jsonContent "createSession"
 
 -- | Construct the URL for viewing a session
 makeSessionViewUrl
@@ -461,7 +435,7 @@ setQuery q req = return $ req { H.queryString = renderQuery True q }
 setJSONBody :: (Monad m, ToJSON a) => a -> Request -> m Request
 setJSONBody obj req =
   return req { H.requestBody = H.RequestBodyLBS $ A.encode $ obj } >>=
-  addHeader "Content-Type" "application/json"
+  addHeader "Content-Type" contentTypeJson
 
 setMethod :: Monad m => StdMethod -> Request -> m Request
 setMethod m req = return $ req { H.method = renderStdMethod m }
@@ -484,8 +458,21 @@ mimeTypeContent rsp =
   (,) `liftM` findHeader hContentType rsp
       `ap`    return (H.responseBody rsp)
 
+jsonContent :: (Monad m, FromJSON a) => String -> Response BL.ByteString -> m a
+jsonContent msg rsp = do
+  (contentType, body) <- mimeTypeContent rsp
+  if contentType == contentTypeJson then
+    maybe (fail $ msg ++ ": Can't decode JSON from response: " ++ show rsp)
+          return
+          (A.decode' body)
+  else
+    fail $ msg ++ ": unknown content type: " ++ show contentType
+
 hRetryAfter :: HeaderName
 hRetryAfter = "Retry-After"
+
+contentTypeJson :: ByteString
+contentTypeJson = "application/json"
 
 maybeToList :: (a -> b) -> Maybe a -> [b]
 maybeToList f = maybe [] (return . f)
