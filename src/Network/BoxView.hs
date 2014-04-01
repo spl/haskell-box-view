@@ -11,6 +11,7 @@ module Network.BoxView (
   getDocInfo,
   getDocEntries,
   updateDocInfo,
+  deleteDoc,
 ) where
 
 --------------------------------------------------------------------------------
@@ -333,6 +334,20 @@ downloadThumb apiKey dim did mgr = do
     202 -> Left `liftM` readHeader hRetryAfter rsp
     200 -> Right `liftM` mimeTypeContent rsp
     c   -> fail $ "downloadThumb: Unsupported HTTP status: " ++ show c
+
+-- | Delete a document
+deleteDoc
+  :: MonadIO m
+  => ByteString       -- ^ API key
+  -> Text             -- ^ Document ID
+  -> Manager          -- ^ HTTP manager
+  -> m ()
+deleteDoc apiKey did mgr = do
+  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did) >>=
+         setMethod DELETE >>=
+         addAuthHeader apiKey
+  _ <- H.httpLbs req mgr
+  return ()
 
 --------------------------------------------------------------------------------
 -- Helpers
