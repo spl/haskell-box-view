@@ -5,10 +5,10 @@ module Network.BoxView (
   DownloadFormat(..),
   Dim(..),
   uploadDoc,
-  getDoc,
+  downloadDoc,
+  downloadThumb,
   getDocInfo,
   getDocEntries,
-  getThumb,
 ) where
 
 --------------------------------------------------------------------------------
@@ -35,6 +35,7 @@ import Network.HTTP.Conduit (Request, Response, Manager)
 import qualified Network.HTTP.Client.MultipartFormData as H
 import qualified Network.HTTP.Conduit as H
 import Network.HTTP.Types
+import Network.Mime (MimeType)
 
 --------------------------------------------------------------------------------
 
@@ -262,18 +263,18 @@ getDocEntries apiKey params mgr = do
            ++ show rsp
 
 -- | Get a document by its ID
-getDoc
+downloadDoc
   :: MonadIO m
   => ByteString       -- ^ API key
   -> DownloadFormat   -- ^ Download format of the file
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
-  -> m BL.ByteString
-getDoc apiKey format did mgr = do
+  -> m (MimeType, BL.ByteString)
+downloadDoc apiKey format did mgr = do
   let fileName = "content" ++ mkExt format
   req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/" ++ fileName) >>=
          addAuthHeader apiKey
-  H.responseBody `liftM` H.httpLbs req mgr
+  H.httpLbs req mgr >>= mimeTypeContent
 
 -- | Get a thumbnail for a document ID. If the thumbnail is ready, a 'Right'
 -- value is returned with the MIME type and file contents. If the thumbnail is
@@ -284,23 +285,22 @@ getDoc apiKey format did mgr = do
 -- document but will best fit the dimensions requested. For example, if a 16×16
 -- thumbnail is requested for a document with a 2:1 aspect ratio, a 16×8
 -- thumbnail will be returned.
-getThumb
+downloadThumb
   :: MonadIO m
   => ByteString       -- ^ API key
   -> Dim              -- ^ Dimensions
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
-  -> m (Either Int (ByteString, BL.ByteString))
-getThumb apiKey dim did mgr = do
+  -> m (Either Int (MimeType, BL.ByteString))
+downloadThumb apiKey dim did mgr = do
   req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/thumbnail") >>=
          setQuery (dimToQuery dim) >>=
          addAuthHeader apiKey
   rsp <- H.httpLbs req mgr
   case statusCode (H.responseStatus rsp) of
     202 -> Left `liftM` readHeader hRetryAfter rsp
-    200 -> liftM Right $ (,) `liftM` findHeader hContentType rsp
-                             `ap`    return (H.responseBody rsp)
-    c   -> fail $ "getThumb: Unsupported HTTP status: " ++ show c
+    200 -> Right `liftM` mimeTypeContent rsp
+    c   -> fail $ "downloadThumb: Unsupported HTTP status: " ++ show c
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -335,6 +335,11 @@ readHeader hdr rsp = findHeader hdr rsp >>= return . readsBS >>= \case
     []        -> fail $ "readHeader: No result for " ++ show hdr
     _         -> fail $  "readHeader: Ambiguous results for " ++ show hdr
                       ++ " in: " ++ show (H.responseHeaders rsp)
+
+mimeTypeContent :: Monad m => Response BL.ByteString -> m (MimeType, BL.ByteString)
+mimeTypeContent rsp =
+  (,) `liftM` findHeader hContentType rsp
+      `ap`    return (H.responseBody rsp)
 
 hRetryAfter :: HeaderName
 hRetryAfter = "Retry-After"
