@@ -87,6 +87,24 @@ instance FromJSON DocId where
 
 --------------------------------------------------------------------------------
 
+-- | Unique session identifier.
+--
+-- Note: Use the 'IsString' instance (e.g. with @OverloadedStrings@) to
+-- construct.
+newtype SessionId = SessionId { fromSessionId :: ByteString }
+  deriving (Eq, IsString)
+
+instance Show SessionId where
+  show = fromByteString . fromSessionId
+
+instance ToJSON SessionId where
+  toJSON = String . TS.decodeUtf8 . fromSessionId
+
+instance FromJSON SessionId where
+  parseJSON = A.withText "SessionId" $ return . SessionId . TS.encodeUtf8
+
+--------------------------------------------------------------------------------
+
 -- | Thumbnail dimensions
 data Dim = Dim
   { width   :: !Int  -- ^ 16 <= width <= 1024
@@ -432,21 +450,21 @@ createSession apiKey did sessionTime mgr = do
 
 -- | Construct the URL for viewing a session
 makeSessionViewUrl
-  :: Text          -- ^ Session ID
+  :: SessionId
   -> SessionTheme  -- ^ Session theme
   -> ByteString
 makeSessionViewUrl sessionId themeStyle =
   "https://view-api.box.com/1/sessions/"
-  <> TS.encodeUtf8 sessionId <> "/view"
+  <> fromSessionId sessionId <> "/view"
   <> renderQuery True (themeStyleToQuery themeStyle)
 
 -- | Construct the URL for Viewer.js using the assets stored at Box
 makeSessionAssetsUrl
-  :: Text         -- ^ Session ID
+  :: SessionId
   -> ByteString
 makeSessionAssetsUrl sessionId =
   "https://view-api.box.com/1/sessions/"
-  <> TS.encodeUtf8 sessionId <> "/assets"
+  <> fromSessionId sessionId <> "/assets"
 
 --------------------------------------------------------------------------------
 -- Helpers
