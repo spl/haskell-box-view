@@ -1,4 +1,5 @@
 module Network.BoxView (
+  ApiKey,
   DocInfo(..),
   DocStatus(..),
   DocEntriesQuery(..),
@@ -36,7 +37,7 @@ import Data.Char (toLower, toUpper)
 import Data.Default.Class (Default(..))
 import qualified Data.HashMap.Strict as HM
 import Data.Monoid ((<>))
-import Data.String (fromString)
+import Data.String (IsString(..))
 import Data.Text (Text)
 import qualified Data.Text as TS
 import qualified Data.Text.Encoding as TS
@@ -46,6 +47,24 @@ import qualified Network.HTTP.Client.MultipartFormData as H
 import qualified Network.HTTP.Conduit as H
 import Network.HTTP.Types
 import Network.Mime (MimeType)
+
+--------------------------------------------------------------------------------
+
+-- | Box View API key.
+--
+-- Note: Use the 'IsString' instance (e.g. with @OverloadedStrings@) to
+-- construct.
+newtype ApiKey = ApiKey { fromApiKey :: ByteString }
+  deriving (IsString)
+
+instance Show ApiKey where
+  show = fromByteString . fromApiKey
+
+instance ToJSON ApiKey where
+  toJSON = String . TS.decodeUtf8 . fromApiKey
+
+instance FromJSON ApiKey where
+  parseJSON = A.withText "ApiKey" $ return . ApiKey . TS.encodeUtf8
 
 --------------------------------------------------------------------------------
 
@@ -182,23 +201,6 @@ instance FromJSON UploadRequest where
                   <*> (o .: "thumbnails" >>= dimsFromJSON)
                   <*> o .: "non_svg"
 
-fromUploadRequest :: MonadIO m => UploadRequest -> m Request
-fromUploadRequest ur@(UploadRequest {..}) =
-  case uploadSource of
-    Left _ ->
-      liftIO (H.parseUrl "https://view-api.box.com/1/documents") >>=
-      setMethod POST >>=
-      setJSONBody ur
-    Right file ->
-      liftIO (H.parseUrl "https://upload.view-api.box.com/1/documents") >>=
-      H.formDataBody
-        ( [ H.partFile "file" file
-          , H.partBS "name" $ TS.encodeUtf8 uploadName
-          , H.partBS "non_svg" $ TS.encodeUtf8 $ TS.toLower $ TS.pack $ show uploadNonSvg
-          ]
-          ++ maybeToList (H.partBS "thumbnails") (dimsToFormPart uploadThumbnails)
-        )
-
 --------------------------------------------------------------------------------
 
 -- | Query parameters for fetching a list of documents
@@ -280,67 +282,77 @@ themeStyleToQuery ts =
 -- | Upload a document according to the 'UploadRequest'
 uploadDoc
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> UploadRequest    -- ^ Document upload request description
   -> Manager          -- ^ HTTP manager
   -> m DocInfo
-uploadDoc apiKey uploadReq mgr = do
-  req <- fromUploadRequest uploadReq >>=
-         addAuthHeader apiKey
+uploadDoc apiKey uploadReq@(UploadRequest {..}) mgr = do
+  req <- case uploadSource of
+    Left _ ->
+      newApiRequest apiKey "https://view-api.box.com/1/documents" >>=
+      setMethod POST >>=
+      setJSONBody uploadReq
+    Right file ->
+      newApiRequest apiKey "https://upload.view-api.box.com/1/documents" >>=
+      H.formDataBody
+        ( [ H.partFile "file" file
+          , H.partBS "name" $ TS.encodeUtf8 uploadName
+          , H.partBS "non_svg" $ TS.encodeUtf8 $ TS.toLower $ TS.pack $ show uploadNonSvg
+          ]
+          ++ maybeToList (H.partBS "thumbnails") (dimsToFormPart uploadThumbnails)
+        )
   H.httpLbs req mgr >>= jsonContent "uploadDoc"
 
 -- | Get a document's metadata
 getDocInfo
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
   -> m DocInfo
 getDocInfo apiKey did mgr = do
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did) >>=
-         addAuthHeader apiKey
+  req <- newApiRequest apiKey $ "https://view-api.box.com/1/documents/"
+                              <> TS.encodeUtf8 did
   H.httpLbs req mgr >>= jsonContent "getDocInfo"
 
 -- | Get a document collection according to the optional 'DocEntriesQuery'
 getDocEntries
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> DocEntriesQuery  -- ^ Query parameters (use 'def' for the default)
   -> Manager          -- ^ HTTP manager
   -> m [DocInfo]
 getDocEntries apiKey params mgr = do
-  req <- liftIO (H.parseUrl "https://view-api.box.com/1/documents") >>=
-         setJSONBody params >>=
-         addAuthHeader apiKey
+  req <- newApiRequest apiKey "https://view-api.box.com/1/documents" >>=
+         setJSONBody params
   liftM fromDocInfoList $ H.httpLbs req mgr >>= jsonContent "getDocEntries"
 
 -- | Update a document's metadata
 updateDocInfo
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> UpdateInfo       -- ^ Metadata to be updated (use 'def' for the default)
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
   -> m DocInfo
 updateDocInfo apiKey updateInfo did mgr = do
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did) >>=
+  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> TS.encodeUtf8 did) >>=
          setMethod PUT >>=
-         setJSONBody updateInfo >>=
-         addAuthHeader apiKey
+         setJSONBody updateInfo
   H.httpLbs req mgr >>= jsonContent "updateDocInfo"
 
 -- | Download a document
 downloadDoc
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> DownloadFormat   -- ^ Download format of the file
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
   -> m (MimeType, BL.ByteString)
 downloadDoc apiKey format did mgr = do
   let fileName = "content" ++ mkExt format
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/" ++ fileName) >>=
-         addAuthHeader apiKey
+  req <- newApiRequest apiKey $ "https://view-api.box.com/1/documents/"
+                              <> TS.encodeUtf8 did <> "/" <> fromString fileName
   H.httpLbs req mgr >>= mimeTypeContent
 
 -- | Download a document's thumbnail. If the thumbnail is ready, a 'Right' value
@@ -354,15 +366,15 @@ downloadDoc apiKey format did mgr = do
 -- thumbnail will be returned.
 downloadThumb
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> Dim              -- ^ Dimensions
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
   -> m (Either Int (MimeType, BL.ByteString))
 downloadThumb apiKey dim did mgr = do
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/thumbnail") >>=
-         setQuery (dimToQuery dim) >>=
-         addAuthHeader apiKey
+  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/"
+                               <> TS.encodeUtf8 did <> "/thumbnail") >>=
+         setQuery (dimToQuery dim)
   rsp <- H.httpLbs req mgr
   case statusCode (H.responseStatus rsp) of
     202 -> Left `liftM` readHeader hRetryAfter rsp
@@ -372,14 +384,13 @@ downloadThumb apiKey dim did mgr = do
 -- | Delete a document
 deleteDoc
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
   -> m ()
 deleteDoc apiKey did mgr = do
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did) >>=
-         setMethod DELETE >>=
-         addAuthHeader apiKey
+  req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> TS.encodeUtf8 did) >>=
+         setMethod DELETE
   _ <- H.httpLbs req mgr
   return ()
 
@@ -388,17 +399,16 @@ deleteDoc apiKey did mgr = do
 -- Note: Sessions can only be created for documents that have a 'Done' status.
 createSession
   :: MonadIO m
-  => ByteString       -- ^ API key
+  => ApiKey
   -> Text             -- ^ Document ID
   -> SessionTime      -- ^ Session time (use 'def' for the default)
   -> Manager          -- ^ HTTP manager
   -> m SessionInfo
 createSession apiKey did sessionTime mgr = do
   let Object sessionObj = toJSON sessionTime
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/sessions") >>=
+  req <- newApiRequest apiKey "https://view-api.box.com/1/sessions" >>=
          setMethod POST >>=
-         setJSONBody (sessionObj <> HM.singleton "document_id" (toJSON did)) >>=
-         addAuthHeader apiKey
+         setJSONBody (sessionObj <> HM.singleton "document_id" (toJSON did))
   H.httpLbs req mgr >>= jsonContent "createSession"
 
 -- | Construct the URL for viewing a session
@@ -426,8 +436,10 @@ addHeader :: Monad m => ByteString -> ByteString -> Request -> m Request
 addHeader name val req = return $
   req { H.requestHeaders = (CI.mk name, val) : H.requestHeaders req }
 
-addAuthHeader :: Monad m => ByteString -> Request -> m Request
-addAuthHeader apiKey = addHeader "Authorization" ("Token " <> apiKey)
+newApiRequest :: MonadIO m => ApiKey -> ByteString -> m Request
+newApiRequest apiKey url =
+  liftIO (H.parseUrl $ fromByteString url) >>=
+  addHeader "Authorization" ("Token " <> fromApiKey apiKey)
 
 setQuery :: Monad m => Query -> Request -> m Request
 setQuery q req = return $ req { H.queryString = renderQuery True q }
@@ -480,8 +492,11 @@ maybeToList f = maybe [] (return . f)
 showBS :: Show a => a -> ByteString
 showBS = fromString . show
 
+fromByteString :: ByteString -> String
+fromByteString = TS.unpack . TS.decodeUtf8
+
 readsBS :: Read a => ByteString -> [(a, String)]
-readsBS = reads . TS.unpack . TS.decodeUtf8
+readsBS = reads . fromByteString
 
 --------------------------------------------------------------------------------
 -- Template Haskell declarations go at the end.
