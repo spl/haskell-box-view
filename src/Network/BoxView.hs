@@ -43,8 +43,8 @@ import Network.Mime (MimeType)
 
 -- | Thumbnail dimensions
 data Dim = Dim
-  { width   :: Int  -- ^ 16 <= width <= 1024
-  , height  :: Int  -- ^ 16 <= height <=  768
+  { width   :: !Int  -- ^ 16 <= width <= 1024
+  , height  :: !Int  -- ^ 16 <= height <=  768
   }
   deriving (Eq, Read, Show)
 
@@ -195,9 +195,9 @@ fromUploadRequest ur@(UploadRequest {..}) =
 
 -- | Query parameters for fetching a list of documents
 data DocEntriesQuery = DocEntriesQuery
-  { queryLimit          :: Maybe Int      -- ^ Number of documents (default=10, max=50)
-  , queryCreatedBefore  :: Maybe UTCTime  -- ^ Upper limit on the creation dates of documents (default=now)
-  , queryCreatedAfter   :: Maybe UTCTime  -- ^ lower limit on the creation timestamps of documents
+  { queryLimit          :: !(Maybe Int)      -- ^ Number of documents (default=10, max=50)
+  , queryCreatedBefore  :: !(Maybe UTCTime)  -- ^ Upper limit on the creation dates of documents (default=now)
+  , queryCreatedAfter   :: !(Maybe UTCTime)  -- ^ lower limit on the creation timestamps of documents
   }
   deriving (Read, Show)
 
