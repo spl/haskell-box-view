@@ -8,20 +8,20 @@ module Network.BoxView (
   getDoc,
   getDocInfo,
   getDocEntries,
+  getThumb,
 ) where
 
 --------------------------------------------------------------------------------
 
 import Control.Applicative ((<$>), (<*>), (<*), (<|>), some)
 import Control.Category ((>>>))
-import Control.Monad (liftM)
+import Control.Monad (liftM, ap)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Aeson (Value(String), ToJSON(..), FromJSON(..), (.=), (.:))
 import Data.Aeson.TH (deriveJSON, defaultOptions, Options(..))
 import qualified Data.Aeson as A
 import qualified Data.Attoparsec.Text as P
 import Data.ByteString (ByteString)
--- import qualified Data.ByteString as BS
 import qualified Data.ByteString.Lazy as BL
 import qualified Data.CaseInsensitive as CI
 import Data.Char (toLower, toUpper)
@@ -31,10 +31,10 @@ import Data.Text (Text)
 import qualified Data.Text as TS
 import qualified Data.Text.Encoding as TS
 import Data.Time.Clock (UTCTime)
-import Network.HTTP.Conduit (Request, Manager)
+import Network.HTTP.Conduit (Request, Response, Manager)
 import qualified Network.HTTP.Client.MultipartFormData as H
 import qualified Network.HTTP.Conduit as H
-import Network.HTTP.Types.Status (statusCode)
+import Network.HTTP.Types
 
 --------------------------------------------------------------------------------
 
@@ -64,6 +64,11 @@ dimsFromJSON val        = fail $ "dimsFromJSON: Not a string: " ++ show val
 dimsToFormPart :: [Dim] -> Maybe ByteString
 dimsToFormPart []  = Nothing
 dimsToFormPart tds = Just $ TS.encodeUtf8 $ dimsToText tds
+
+dimToQuery :: Dim -> Query
+dimToQuery Dim {..} = [ ("width",  Just $ showBS width)
+                      , ("height", Just $ showBS height)
+                      ]
 
 --------------------------------------------------------------------------------
 
@@ -160,7 +165,7 @@ fromUploadRequest ur@(UploadRequest {..}) =
   case uploadSource of
     Left _ ->
       liftIO (H.parseUrl "https://view-api.box.com/1/documents") >>=
-      setMethod "POST" >>=
+      setMethod POST >>=
       addHeader "Content-Type" "application/json" >>=
       setBody ur
     Right file ->
@@ -268,32 +273,34 @@ getDoc apiKey format did mgr = do
   let fileName = "content" ++ mkExt format
   req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/" ++ fileName) >>=
          addAuthHeader apiKey
-  liftM H.responseBody $ H.httpLbs req mgr
+  H.responseBody `liftM` H.httpLbs req mgr
 
-{-
--- | Get a thumbnail for a document ID. Thumbnails will always preserve the
--- aspect ratio of the original document but will best fit the dimensions
--- requested. For example, if a 16×16 thumbnail is requested for a document with
--- a 2:1 aspect ratio, a 16×8 thumbnail will be returned.
+-- | Get a thumbnail for a document ID. If the thumbnail is ready, a 'Right'
+-- value is returned with the MIME type and file contents. If the thumbnail is
+-- not ready, a 'Left' value provides the number of seconds to wait before
+-- retrying again.
+--
+-- Note: Thumbnails will always preserve the aspect ratio of the original
+-- document but will best fit the dimensions requested. For example, if a 16×16
+-- thumbnail is requested for a document with a 2:1 aspect ratio, a 16×8
+-- thumbnail will be returned.
 getThumb
   :: MonadIO m
   => ByteString       -- ^ API key
   -> Dim              -- ^ Dimensions
   -> Text             -- ^ Document ID
   -> Manager          -- ^ HTTP manager
-  -> m (Either Int BL.ByteString)
-getThumb apiKey Dim {..} did mgr = do
-  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/thumbnail?width=" ++ show width ++ "&height=" ++ show height) >>=
+  -> m (Either Int (ByteString, BL.ByteString))
+getThumb apiKey dim did mgr = do
+  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did ++ "/thumbnail") >>=
+         setQuery (dimToQuery dim) >>=
          addAuthHeader apiKey
   rsp <- H.httpLbs req mgr
-  if statusCode (H.responseStatus rsp) == 202 then
-    return $ Left $ read
-  case A.decode' $ H.responseBody rsp of
-    Just obj -> return obj
-    Nothing ->
-      fail $  "getThumb: Can't decode JSON body from response: "
-           ++ show rsp
--}
+  case statusCode (H.responseStatus rsp) of
+    202 -> Left `liftM` readHeader hRetryAfter rsp
+    200 -> liftM Right $ (,) `liftM` findHeader hContentType rsp
+                             `ap`    return (H.responseBody rsp)
+    c   -> fail $ "getThumb: Unsupported HTTP status: " ++ show c
 
 --------------------------------------------------------------------------------
 -- Helpers
@@ -305,16 +312,41 @@ addHeader name val req = return $
 addAuthHeader :: Monad m => ByteString -> Request -> m Request
 addAuthHeader apiKey = addHeader "Authorization" ("Token " <> apiKey)
 
+setQuery :: Monad m => Query -> Request -> m Request
+setQuery q req = return $ req { H.queryString = renderQuery True q }
+
 setBody :: (Monad m, ToJSON a) => a -> Request -> m Request
 setBody obj req = return $ req
   { H.requestBody = H.RequestBodyLBS $ A.encode $ obj
   }
 
-setMethod :: Monad m => ByteString -> Request -> m Request
-setMethod m req = return $ req { H.method = m }
+setMethod :: Monad m => StdMethod -> Request -> m Request
+setMethod m req = return $ req { H.method = renderStdMethod m }
+
+findHeader :: Monad m => HeaderName -> Response b -> m ByteString
+findHeader hdr rsp = case lookup hdr $ H.responseHeaders rsp of
+  Nothing -> fail $  "findHeader: Can't find " ++ show hdr
+                  ++ " in: " ++ show (H.responseHeaders rsp)
+  Just val -> return val
+
+readHeader :: (Monad m, Read a) => HeaderName -> Response b -> m a
+readHeader hdr rsp = findHeader hdr rsp >>= return . readsBS >>= \case
+    [(x, [])] -> return x
+    []        -> fail $ "readHeader: No result for " ++ show hdr
+    _         -> fail $  "readHeader: Ambiguous results for " ++ show hdr
+                      ++ " in: " ++ show (H.responseHeaders rsp)
+
+hRetryAfter :: HeaderName
+hRetryAfter = "Retry-After"
 
 maybeToList :: (a -> b) -> Maybe a -> [b]
 maybeToList f = maybe [] (return . f)
+
+showBS :: Show a => a -> ByteString
+showBS = TS.encodeUtf8 . TS.pack . show
+
+readsBS :: Read a => ByteString -> [(a, String)]
+readsBS = reads . TS.unpack . TS.decodeUtf8
 
 --------------------------------------------------------------------------------
 -- Template Haskell declarations go at the end.
