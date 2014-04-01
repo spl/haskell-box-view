@@ -1,6 +1,7 @@
 module Network.BoxView (
-  ApiKey,
-  DocId,
+  ApiKey(..),
+  DocId(..),
+  SessionId(..),
   DocInfo(..),
   DocStatus(..),
   DocEntriesQuery(..),
