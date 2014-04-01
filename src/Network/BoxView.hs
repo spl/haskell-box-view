@@ -4,11 +4,13 @@ module Network.BoxView (
   DocEntriesQuery(..),
   DownloadFormat(..),
   Dim(..),
+  UpdateInfo(..),
   uploadDoc,
   downloadDoc,
   downloadThumb,
   getDocInfo,
   getDocEntries,
+  updateDocInfo,
 ) where
 
 --------------------------------------------------------------------------------
@@ -18,7 +20,7 @@ import Control.Category ((>>>))
 import Control.Monad (liftM, ap)
 import Control.Monad.IO.Class (MonadIO(..))
 import Data.Aeson (Value(String), ToJSON(..), FromJSON(..), (.=), (.:))
-import Data.Aeson.TH (deriveJSON, defaultOptions, Options(..))
+import Data.Aeson.TH (deriveJSON, deriveToJSON, defaultOptions, Options(..))
 import qualified Data.Aeson as A
 import qualified Data.Attoparsec.Text as P
 import Data.ByteString (ByteString)
@@ -137,6 +139,17 @@ instance FromJSON DocInfoList where
 
 --------------------------------------------------------------------------------
 
+-- | Document metatdata that can be updated
+data UpdateInfo = UpdateInfo
+  { updateName       :: !(Maybe Text)  -- ^ Document name
+  }
+  deriving (Read, Show)
+
+instance Default UpdateInfo where
+  def = UpdateInfo Nothing
+
+--------------------------------------------------------------------------------
+
 -- | A document upload request for either a URL or a file.
 data UploadRequest = UploadRequest
   { uploadSource      :: !(Either Text FilePath) -- ^ A URL or FilePath
@@ -167,8 +180,7 @@ fromUploadRequest ur@(UploadRequest {..}) =
     Left _ ->
       liftIO (H.parseUrl "https://view-api.box.com/1/documents") >>=
       setMethod POST >>=
-      addHeader "Content-Type" "application/json" >>=
-      setBody ur
+      setJSONBody ur
     Right file ->
       liftIO (H.parseUrl "https://upload.view-api.box.com/1/documents") >>=
       H.formDataBody
@@ -227,7 +239,7 @@ uploadDoc apiKey uploadReq mgr = do
       fail $  "uploadDoc: Can't decode JSON body from response: "
            ++ show rsp
 
--- | Get a document's metadata by its ID
+-- | Get a document's metadata
 getDocInfo
   :: MonadIO m
   => ByteString       -- ^ API key
@@ -253,7 +265,7 @@ getDocEntries
   -> m [DocInfo]
 getDocEntries apiKey params mgr = do
   req <- liftIO (H.parseUrl "https://view-api.box.com/1/documents") >>=
-         setBody params >>=
+         setJSONBody params >>=
          addAuthHeader apiKey
   rsp <- H.httpLbs req mgr
   case A.decode' $ H.responseBody rsp of
@@ -262,7 +274,27 @@ getDocEntries apiKey params mgr = do
       fail $  "getDocEntries: Can't decode JSON body from response: "
            ++ show rsp
 
--- | Get a document by its ID
+-- | Update a document's metadata
+updateDocInfo
+  :: MonadIO m
+  => ByteString       -- ^ API key
+  -> UpdateInfo       -- ^ Metadata to be updated (use 'def' for defaults)
+  -> Text             -- ^ Document ID
+  -> Manager          -- ^ HTTP manager
+  -> m DocInfo
+updateDocInfo apiKey updateInfo did mgr = do
+  req <- liftIO (H.parseUrl $ "https://view-api.box.com/1/documents/" ++ TS.unpack did) >>=
+         setMethod PUT >>=
+         setJSONBody updateInfo >>=
+         addAuthHeader apiKey
+  rsp <- H.httpLbs req mgr
+  case A.decode' $ H.responseBody rsp of
+    Just obj -> return obj
+    Nothing ->
+      fail $  "updateDocInfo: Can't decode JSON body from response: "
+           ++ show rsp
+
+-- | Download a document
 downloadDoc
   :: MonadIO m
   => ByteString       -- ^ API key
@@ -276,10 +308,10 @@ downloadDoc apiKey format did mgr = do
          addAuthHeader apiKey
   H.httpLbs req mgr >>= mimeTypeContent
 
--- | Get a thumbnail for a document ID. If the thumbnail is ready, a 'Right'
--- value is returned with the MIME type and file contents. If the thumbnail is
--- not ready, a 'Left' value provides the number of seconds to wait before
--- retrying again.
+-- | Download a document's thumbnail. If the thumbnail is ready, a 'Right' value
+-- is returned with the MIME type and file contents. If the thumbnail is not
+-- ready, a 'Left' value provides the number of seconds to wait before retrying
+-- again.
 --
 -- Note: Thumbnails will always preserve the aspect ratio of the original
 -- document but will best fit the dimensions requested. For example, if a 16×16
@@ -315,10 +347,10 @@ addAuthHeader apiKey = addHeader "Authorization" ("Token " <> apiKey)
 setQuery :: Monad m => Query -> Request -> m Request
 setQuery q req = return $ req { H.queryString = renderQuery True q }
 
-setBody :: (Monad m, ToJSON a) => a -> Request -> m Request
-setBody obj req = return $ req
-  { H.requestBody = H.RequestBodyLBS $ A.encode $ obj
-  }
+setJSONBody :: (Monad m, ToJSON a) => a -> Request -> m Request
+setJSONBody obj req =
+  return req { H.requestBody = H.RequestBodyLBS $ A.encode $ obj } >>=
+  addHeader "Content-Type" "application/json"
 
 setMethod :: Monad m => StdMethod -> Request -> m Request
 setMethod m req = return $ req { H.method = renderStdMethod m }
@@ -366,3 +398,8 @@ deriveJSON defaultOptions
           firstLower (c:cs) = toLower c : cs
       in underscore . firstLower . drop 5
   } ''DocEntriesQuery
+
+deriveToJSON defaultOptions
+  { omitNothingFields = True
+  , fieldLabelModifier = map toLower . drop 6
+  } ''UpdateInfo
