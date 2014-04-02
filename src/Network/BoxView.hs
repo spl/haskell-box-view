@@ -12,6 +12,7 @@ module Network.BoxView (
   SessionInfo(..),
   SessionTime(..),
   SessionTheme(..),
+  AssetsInfo(..),
   uploadDoc,
   downloadDoc,
   downloadThumb,
@@ -20,6 +21,7 @@ module Network.BoxView (
   updateDocInfo,
   deleteDoc,
   createSession,
+  getAssetsInfo,
   makeSessionViewUrl,
   makeSessionAssetsUrl,
 ) where
@@ -27,12 +29,13 @@ module Network.BoxView (
 --------------------------------------------------------------------------------
 
 import Control.Applicative ((<$>), (<*>), (<*), (<|>), some)
-import Control.Category ((>>>))
-import Control.Monad (liftM, ap)
+import Control.Arrow ((>>>), first)
+import Control.Monad (liftM, ap, (>=>))
 import Control.Monad.IO.Class (MonadIO(..))
-import Data.Aeson (Value(..), ToJSON(..), FromJSON(..), (.=), (.:))
+import Data.Aeson (Value(..), Object, ToJSON(..), FromJSON(..), (.=), (.:))
 import Data.Aeson.TH (deriveJSON, deriveToJSON, defaultOptions, Options(..))
 import qualified Data.Aeson as A
+import qualified Data.Aeson.Types as A
 import qualified Data.Attoparsec.Text as P
 import Data.ByteString (ByteString)
 import qualified Data.ByteString.Lazy as BL
@@ -40,6 +43,8 @@ import qualified Data.CaseInsensitive as CI
 import Data.Char (toLower, toUpper)
 import Data.Default.Class (Default(..))
 import qualified Data.HashMap.Strict as HM
+import Data.IntMap.Strict (IntMap)
+import qualified Data.IntMap.Strict as IM
 import Data.Monoid ((<>))
 import Data.String (IsString(..))
 import Data.Text (Text)
@@ -317,6 +322,51 @@ themeStyleToQuery ts =
   [("theme", Just $ case ts of { LightTheme -> "light"; DarkTheme  -> "dark" })]
 
 --------------------------------------------------------------------------------
+
+-- | This information is extrapolated from an undocumented file included in the
+-- assets.
+data AssetsInfo = AssetsInfo
+  { assetsNumPages       :: !Int           -- ^ Number of pages in the document
+  , assetsVersion        :: !Text          -- ^ Unknown
+  , assetsDim            :: !Dim           -- ^ Dimensions of (most?) pages
+  , assetsDimExceptions  :: !(IntMap Dim)  -- ^ Pages with exceptional dimensions
+  , assetsLinks          :: !Value         -- ^ Information about (internal and
+                                           -- external) links in the document
+  }
+  deriving (Show)
+
+exceptionsToJSON :: IntMap Dim -> Value
+exceptionsToJSON = toJSON . HM.fromList . map (first show) . IM.toList
+
+exceptionsFromObject :: Object -> A.Parser (IntMap Dim)
+exceptionsFromObject = HM.toList >>> (mapM parsePair >=> return . IM.fromList)
+  where
+    parsePair :: (Text, Value) -> A.Parser (Int, Dim)
+    parsePair (t, v) = (read $ TS.unpack t,) <$> parseJSON v
+
+instance ToJSON AssetsInfo where
+  toJSON (AssetsInfo {..}) = A.object
+    [ "numpages"      .= toJSON assetsNumPages
+    , "version"       .= toJSON assetsVersion
+    , "dimensions"    .= A.object
+      [ "exceptions"  .= exceptionsToJSON assetsDimExceptions
+      , "width"       .= width assetsDim
+      , "height"      .= height assetsDim
+      ]
+    , "links"         .= assetsLinks
+    ]
+
+instance FromJSON AssetsInfo where
+  parseJSON = A.withObject "AssetsInfo" $ \o -> do
+    dimO <- o .: "dimensions"
+    excO <- dimO .: "exceptions"
+    AssetsInfo <$> o .: "numpages"
+               <*> o .: "version"
+               <*> parseJSON (Object dimO)
+               <*> exceptionsFromObject excO
+               <*> o .: "links"
+
+--------------------------------------------------------------------------------
 -- Exported
 
 -- | Upload a document according to the 'UploadRequest'
@@ -473,6 +523,16 @@ makeSessionAssetsUrl sid =
   "https://view-api.box.com/1/sessions/"
   <> fromSessionId sid <> "/assets"
 
+-- | Download the info.json file in a session's assets and extract its data
+getAssetsInfo
+  :: MonadIO m
+  => SessionId
+  -> Manager
+  -> m AssetsInfo
+getAssetsInfo sid mgr = do
+  req <- newSessionRequest $ makeSessionAssetsUrl sid <> "/info.json"
+  H.httpLbs req mgr >>= jsonContent "getAssetsInfo"
+
 --------------------------------------------------------------------------------
 -- Helpers
 
@@ -484,6 +544,9 @@ newApiRequest :: MonadIO m => ApiKey -> ByteString -> m Request
 newApiRequest apiKey url =
   liftIO (H.parseUrl $ fromByteString url) >>=
   addHeader "Authorization" ("Token " <> fromApiKey apiKey)
+
+newSessionRequest :: MonadIO m => ByteString -> m Request
+newSessionRequest url = liftIO (H.parseUrl $ fromByteString url)
 
 setQuery :: Monad m => Query -> Request -> m Request
 setQuery q req = return $ req { H.queryString = renderQuery True q }
@@ -544,6 +607,8 @@ readsBS = reads . fromByteString
 
 --------------------------------------------------------------------------------
 -- Template Haskell declarations go at the end.
+
+deriveJSON defaultOptions ''Dim
 
 deriveJSON defaultOptions
   { omitNothingFields = True

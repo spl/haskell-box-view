@@ -23,6 +23,7 @@ library
                         RecordWildCards
                         ScopedTypeVariables
                         TemplateHaskell
+                        TupleSections
   exposed-modules:
                         Network.BoxView
   build-depends:
@@ -32,6 +33,7 @@ library
                         bytestring,
                         case-insensitive,
                         conduit,
+                        containers >= 0.5,
                         data-default-class,
                         http-client-multipart,
                         http-conduit >= 2.0 && < 3.0,
