@@ -271,15 +271,15 @@ mkExt DownloadZip      = ".zip"
 --------------------------------------------------------------------------------
 
 data SessionInfo = SessionInfo
-  { sessionId         :: !Text     -- ^ Unique session identifier
-  , sessionExpiresAt  :: !UTCTime  -- ^ Time when the session expires
+  { sessionId         :: !SessionId  -- ^ Unique session identifier
+  , sessionExpiresAt  :: !UTCTime    -- ^ Time when the session expires
   }
   deriving (Eq, Show)
 
 instance ToJSON SessionInfo where
   toJSON (SessionInfo {..}) = A.object
     [ "type"        .= String "session"
-    , "id"          .= String sessionId
+    , "id"          .= toJSON sessionId
     , "expires_at"  .= toJSON sessionExpiresAt
     ]
 
@@ -455,18 +455,18 @@ makeSessionViewUrl
   :: SessionId
   -> SessionTheme  -- ^ Session theme
   -> ByteString
-makeSessionViewUrl sessionId themeStyle =
+makeSessionViewUrl sid themeStyle =
   "https://view-api.box.com/1/sessions/"
-  <> fromSessionId sessionId <> "/view"
+  <> fromSessionId sid <> "/view"
   <> renderQuery True (themeStyleToQuery themeStyle)
 
 -- | Construct the URL for Viewer.js using the assets stored at Box
 makeSessionAssetsUrl
   :: SessionId
   -> ByteString
-makeSessionAssetsUrl sessionId =
+makeSessionAssetsUrl sid =
   "https://view-api.box.com/1/sessions/"
-  <> fromSessionId sessionId <> "/assets"
+  <> fromSessionId sid <> "/assets"
 
 --------------------------------------------------------------------------------
 -- Helpers
