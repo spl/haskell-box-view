@@ -443,13 +443,17 @@ createSession
   -> DocId
   -> SessionTime      -- ^ Session time (use 'def' for the default)
   -> Manager          -- ^ HTTP manager
-  -> m SessionInfo
+  -> m (Either Int SessionInfo)
 createSession apiKey did sessionTime mgr = do
   let Object sessionObj = toJSON sessionTime
   req <- newApiRequest apiKey "https://view-api.box.com/1/sessions" >>=
          setMethod POST >>=
          setJSONBody (sessionObj <> HM.singleton "document_id" (toJSON did))
-  H.httpLbs req mgr >>= jsonContent "createSession"
+  rsp <- H.httpLbs req mgr
+  case statusCode (H.responseStatus rsp) of
+    202 -> Left `liftM` readHeader hRetryAfter rsp
+    200 -> Right `liftM` jsonContent "createSession" rsp
+    c   -> fail $ "downloadThumb: Unsupported HTTP status: " ++ show c
 
 -- | Construct the URL for viewing a session
 makeSessionViewUrl
