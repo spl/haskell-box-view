@@ -23,7 +23,8 @@ module Network.BoxView (
   createSession,
   getAssetsInfo,
   makeSessionViewUrl,
-  makeSessionAssetsUrl,
+  makeSessionViewerUrl,
+  makeSessionAssetUrl,
 ) where
 
 --------------------------------------------------------------------------------
@@ -505,7 +506,7 @@ createSession apiKey did sessionTime mgr = do
     202 -> Left `liftM` readHeader hRetryAfter rsp
     c   -> fail $ "downloadThumb: Unsupported HTTP status: " ++ show c
 
--- | Construct the URL for viewing a session
+-- | Construct the URL for viewing a session using Box's server
 makeSessionViewUrl
   :: SessionId
   -> SessionTheme  -- ^ Session theme
@@ -515,13 +516,20 @@ makeSessionViewUrl sid themeStyle =
   <> fromSessionId sid <> "/view"
   <> renderQuery True (themeStyleToQuery themeStyle)
 
--- | Construct the URL for Viewer.js using the assets stored at Box
-makeSessionAssetsUrl
+-- | Construct a URL to pass to Viewer.js
+makeSessionViewerUrl
   :: SessionId
   -> ByteString
-makeSessionAssetsUrl sid =
+makeSessionViewerUrl sid =
   "https://view-api.box.com/1/sessions/"
   <> fromSessionId sid <> "/assets"
+
+-- | Construct a URL to one of the assets stored at Box
+makeSessionAssetUrl
+  :: SessionId
+  -> ByteString   -- ^ A file in the assets path (no /)
+  -> ByteString
+makeSessionAssetUrl sid file = makeSessionViewerUrl sid <> "/" <> file
 
 -- | Download the info.json file in a session's assets and extract its data
 getAssetsInfo
@@ -530,7 +538,7 @@ getAssetsInfo
   -> Manager
   -> m AssetsInfo
 getAssetsInfo sid mgr = do
-  req <- newSessionRequest $ makeSessionAssetsUrl sid <> "/info.json"
+  req <- newSessionRequest $ makeSessionAssetUrl sid "info.json"
   H.httpLbs req mgr >>= jsonContent "getAssetsInfo"
 
 --------------------------------------------------------------------------------
