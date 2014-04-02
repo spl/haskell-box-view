@@ -374,7 +374,7 @@ uploadDoc
   :: MonadIO m
   => ApiKey
   -> UploadRequest    -- ^ Document upload request description
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m DocInfo
 uploadDoc apiKey uploadReq@(UploadRequest {..}) mgr = do
   req <- case uploadSource of
@@ -398,7 +398,7 @@ getDocInfo
   :: MonadIO m
   => ApiKey
   -> DocId
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m DocInfo
 getDocInfo apiKey did mgr = do
   req <- newApiRequest apiKey $ "https://view-api.box.com/1/documents/"
@@ -410,7 +410,7 @@ getDocEntries
   :: MonadIO m
   => ApiKey
   -> DocEntriesQuery  -- ^ Query parameters (use 'def' for the default)
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m [DocInfo]
 getDocEntries apiKey params mgr = do
   req <- newApiRequest apiKey "https://view-api.box.com/1/documents" >>=
@@ -423,7 +423,7 @@ updateDocInfo
   => ApiKey
   -> UpdateInfo       -- ^ Metadata to be updated (use 'def' for the default)
   -> DocId
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m DocInfo
 updateDocInfo apiKey updateInfo did mgr = do
   req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> fromDocId did) >>=
@@ -437,7 +437,7 @@ downloadDoc
   => ApiKey
   -> DownloadFormat   -- ^ Download format of the file
   -> DocId
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m (MimeType, BL.ByteString)
 downloadDoc apiKey format did mgr = do
   let fileName = "content" ++ mkExt format
@@ -457,9 +457,9 @@ downloadDoc apiKey format did mgr = do
 downloadThumb
   :: MonadIO m
   => ApiKey
-  -> Dim              -- ^ Dimensions
+  -> Dim              -- ^ Requested dimensions
   -> DocId
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m (Either Int (MimeType, BL.ByteString))
 downloadThumb apiKey dim did mgr = do
   req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/"
@@ -476,7 +476,7 @@ deleteDoc
   :: MonadIO m
   => ApiKey
   -> DocId
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m ()
 deleteDoc apiKey did mgr = do
   req <- newApiRequest apiKey ("https://view-api.box.com/1/documents/" <> fromDocId did) >>=
@@ -492,7 +492,7 @@ createSession
   => ApiKey
   -> DocId
   -> SessionTime      -- ^ Session time (use 'def' for the default)
-  -> Manager          -- ^ HTTP manager
+  -> Manager
   -> m (Either Int SessionInfo)
 createSession apiKey did sessionTime mgr = do
   let Object sessionObj = toJSON sessionTime
