@@ -10,6 +10,7 @@ module Network.BoxView (
   UpdateInfo(..),
   UploadRequest(..),
   SessionInfo(..),
+  SessionTime(..),
   SessionTheme(..),
   uploadDoc,
   downloadDoc,
