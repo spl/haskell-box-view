@@ -417,8 +417,8 @@ downloadThumb apiKey dim did mgr = do
          setQuery (dimToQuery dim)
   rsp <- H.httpLbs req mgr
   case statusCode (H.responseStatus rsp) of
-    202 -> Left `liftM` readHeader hRetryAfter rsp
     200 -> Right `liftM` mimeTypeContent rsp
+    202 -> Left `liftM` readHeader hRetryAfter rsp
     c   -> fail $ "downloadThumb: Unsupported HTTP status: " ++ show c
 
 -- | Delete a document
@@ -451,8 +451,8 @@ createSession apiKey did sessionTime mgr = do
          setJSONBody (sessionObj <> HM.singleton "document_id" (toJSON did))
   rsp <- H.httpLbs req mgr
   case statusCode (H.responseStatus rsp) of
+    201 -> Right `liftM` jsonContent "createSession" rsp
     202 -> Left `liftM` readHeader hRetryAfter rsp
-    200 -> Right `liftM` jsonContent "createSession" rsp
     c   -> fail $ "downloadThumb: Unsupported HTTP status: " ++ show c
 
 -- | Construct the URL for viewing a session
