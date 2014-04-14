@@ -46,7 +46,7 @@ import Data.Default.Class (Default(..))
 import qualified Data.HashMap.Strict as HM
 import Data.IntMap.Strict (IntMap)
 import qualified Data.IntMap.Strict as IM
-import Data.Monoid ((<>))
+import Data.Monoid ((<>), mappend)
 import Data.String (IsString(..))
 import Data.Text (Text)
 import qualified Data.Text as TS
@@ -157,14 +157,10 @@ instance ToJSON DocStatus where
 
 instance FromJSON DocStatus where
   parseJSON = A.withText "DocStatus" $
-    reads . firstUpper . TS.unpack >>> \case
+    reads . TS.unpack . firstUpper >>> \case
       [(x, [])] -> return x
       []        -> fail "No result for DocStatus"
       res       -> fail $ "Ambiguous results for DocStatus: " ++ show res
-    where
-      firstUpper :: String -> String
-      firstUpper ""     = ""
-      firstUpper (c:cs) = toUpper c : cs
 
 --------------------------------------------------------------------------------
 
@@ -366,6 +362,22 @@ instance FromJSON AssetsInfo where
                <*> parseJSON (Object dimO)
                <*> exceptionsFromObject excO
                <*> o .: "links"
+
+--------------------------------------------------------------------------------
+
+data WebhookEvent = WHDocViewable | WHDocDone | WHDocError
+  deriving (Eq, Enum, Bounded, Read, Show)
+
+instance ToJSON WebhookEvent where
+  toJSON = String . mappend "document." . TS.toLower . TS.drop (length ("WHDoc" :: String)) . TS.pack . show
+
+instance FromJSON WebhookEvent where
+  parseJSON = A.withText "WebhookEvent" $
+    TS.drop (length ("document." :: String)) >>> firstUpper >>> mappend "WHDoc" >>> TS.unpack >>> reads
+    >>> \case
+      [(x, [])] -> return x
+      []        -> fail "No result for WebhookEvent"
+      res       -> fail $ "Ambiguous results for WebhookEvent: " ++ show res
 
 --------------------------------------------------------------------------------
 -- Exported
@@ -612,6 +624,9 @@ fromByteString = TS.unpack . TS.decodeUtf8
 
 readsBS :: Read a => ByteString -> [(a, String)]
 readsBS = reads . fromByteString
+
+firstUpper :: Text -> Text
+firstUpper = TS.uncons >>> maybe TS.empty (uncurry (TS.cons . toUpper))
 
 --------------------------------------------------------------------------------
 -- Template Haskell declarations go at the end.
