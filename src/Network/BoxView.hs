@@ -365,6 +365,7 @@ instance FromJSON AssetsInfo where
 
 --------------------------------------------------------------------------------
 
+-- | Event type of a 'WebhookRequest'
 data WebhookEvent = WHDocViewable | WHDocDone | WHDocError
   deriving (Eq, Enum, Bounded, Read, Show)
 
@@ -378,6 +379,32 @@ instance FromJSON WebhookEvent where
       [(x, [])] -> return x
       []        -> fail "No result for WebhookEvent"
       res       -> fail $ "Ambiguous results for WebhookEvent: " ++ show res
+
+-- | The data format of a webhoook request JSON object sent to a URL you
+-- provided to Box. The data arrives in an array of these objects. You can use
+-- the 'FromJSON' conversion to extract the list from the POST request body.
+data WebhookRequest = WebhookRequest
+  { whEventType    :: !WebhookEvent
+  , whDocId        :: !DocId
+  , whTriggeredAt  :: !UTCTime
+  }
+  deriving (Show)
+
+instance ToJSON WebhookRequest where
+  toJSON (WebhookRequest {..}) = A.object
+    [ "type"          .= toJSON whEventType
+    , "data"          .= A.object
+      [ "id"          .= toJSON whDocId
+      ]
+    , "triggered_at"  .= toJSON whTriggeredAt
+    ]
+
+instance FromJSON WebhookRequest where
+  parseJSON = A.withObject "WebhookRequest" $ \o -> do
+    dataO <- o .: "data"
+    WebhookRequest <$> o .: "type"
+                   <*> dataO .: "id"
+                   <*> o .: "triggered_at"
 
 --------------------------------------------------------------------------------
 -- Exported
