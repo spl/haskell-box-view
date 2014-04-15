@@ -35,7 +35,7 @@ library
                         conduit,
                         containers >= 0.5,
                         data-default-class,
-                        http-client-multipart,
+                        http-client >= 0.3,
                         http-conduit >= 2.0 && < 3.0,
                         http-types,
                         mime-types,
