@@ -13,6 +13,8 @@ module Network.BoxView (
   SessionTime(..),
   SessionTheme(..),
   AssetsInfo(..),
+  WebhookEvent(..),
+  WebhookRequest(..),
   uploadDoc,
   downloadDoc,
   downloadThumb,
