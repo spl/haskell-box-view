@@ -367,9 +367,10 @@ instance FromJSON AssetsInfo where
 
 --------------------------------------------------------------------------------
 
--- | Event type of a 'WebhookRequest'
-data WebhookEvent = WHDocViewable | WHDocDone | WHDocError
-  deriving (Eq, Enum, Bounded, Read, Show)
+-- | Event type of a 'WebhookRequest'. You can use the 'Ord' instance to sort
+-- the events so that errors come before viewables come before dones.
+data WebhookEvent = WHDocError | WHDocViewable | WHDocDone
+  deriving (Eq, Enum, Bounded, Ord, Read, Show)
 
 instance ToJSON WebhookEvent where
   toJSON = String . mappend "document." . TS.toLower . TS.drop (length ("WHDoc" :: String)) . TS.pack . show
