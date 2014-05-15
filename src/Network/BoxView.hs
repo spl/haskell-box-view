@@ -16,6 +16,7 @@ module Network.BoxView (
   WebhookEvent(..),
   WebhookRequest(..),
   uploadDoc,
+  uploadDocRetry,
   downloadDoc,
   downloadThumb,
   getDocInfo,
@@ -59,6 +60,9 @@ import qualified Network.HTTP.Client.MultipartFormData as H
 import qualified Network.HTTP.Conduit as H
 import Network.HTTP.Types
 import Network.Mime (MimeType)
+import Control.Exception.Base (SomeException, catch)
+import Control.Concurrent (threadDelay)
+import Data.Function (fix)
 
 --------------------------------------------------------------------------------
 
@@ -411,6 +415,24 @@ instance FromJSON WebhookRequest where
 
 --------------------------------------------------------------------------------
 -- Exported
+
+-- | retry loop with exponential backoff.  the only way to break the loop is
+--   to throw an exception in the erorr handler.
+uploadDocRetry
+  :: MonadIO m
+  => ApiKey
+  -> UploadRequest    -- ^ Document upload request description
+  -> Manager
+  -> Maybe (Int -> SomeException -> IO ())
+  -> m DocInfo
+uploadDocRetry apiKey uploadReq mgr Nothing =
+    uploadDocRetry apiKey uploadReq mgr (Just (\_ _ -> return ()))
+uploadDocRetry apiKey uploadReq mgr (Just onErr) =
+  liftIO $ ($ 2000000) $ fix $ \loop n ->
+    catch (uploadDoc apiKey uploadReq mgr) $ \(e :: SomeException) -> do
+      onErr n e
+      threadDelay n
+      loop (n + (n `div` 5))
 
 -- | Upload a document according to the 'UploadRequest'
 uploadDoc
