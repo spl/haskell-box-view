@@ -423,16 +423,17 @@ uploadDocRetry
   => ApiKey
   -> UploadRequest    -- ^ Document upload request description
   -> Manager
-  -> Maybe (Int -> SomeException -> IO ())
+  -> (Int -> SomeException -> IO ()) -- ^ Polling Notifier function.
+                                     --   you can use this to log polling
+                                     --   attempts.  to break out of the
+                                     --   poll loop, rethrow the
+                                     --   exception. and looping will stop.
   -> m DocInfo
-uploadDocRetry apiKey uploadReq mgr Nothing =
-    uploadDocRetry apiKey uploadReq mgr (Just (\_ _ -> return ()))
-uploadDocRetry apiKey uploadReq mgr (Just onErr) =
-  liftIO $ ($ 2000000) $ fix $ \loop n ->
-    catch (uploadDoc apiKey uploadReq mgr) $ \(e :: SomeException) -> do
-      onErr n e
-      threadDelay n
-      loop (n + (n `div` 5))
+uploadDocRetry apiKey req mgr onErr = liftIO $ ($ 2000000) $ fix $ \loop n ->
+  catch (uploadDoc apiKey req mgr) $ \(e :: SomeException) -> do
+    onErr n e
+    threadDelay n
+    loop (n + (n `div` 5))
 
 -- | Upload a document according to the 'UploadRequest'
 uploadDoc
