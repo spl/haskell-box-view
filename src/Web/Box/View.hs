@@ -1,4 +1,4 @@
-module Network.BoxView (
+module Web.Box.View (
   ApiKey(..),
   DocId(..),
   SessionId(..),

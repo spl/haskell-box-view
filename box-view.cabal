@@ -25,7 +25,7 @@ library
                         TemplateHaskell
                         TupleSections
   exposed-modules:
-                        Network.BoxView
+                        Web.Box.View
   build-depends:
                         aeson >= 0.6 && < 0.8,
                         attoparsec,
