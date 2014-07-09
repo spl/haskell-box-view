@@ -1,11 +1,11 @@
 name:                   box-view
-version:                0.1
+version:                0.2
 synopsis:               Simple implementation of the Box View API
 homepage:               https://www.github.com/docmunch/haskell-box-view
 license:                MIT
 license-file:           LICENSE
 author:                 Sean Leather
-maintainer:             sean@docmunch.com
+maintainer:             sean@doxiq.com
 copyright:              2014 Daggerboard, Inc.
 category:               Web
 build-type:             Simple
