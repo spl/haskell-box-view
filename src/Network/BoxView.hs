@@ -10,6 +10,7 @@ module Network.BoxView (
   UpdateInfo(..),
   UploadRequest(..),
   SessionInfo(..),
+  SessionUrls(..),
   SessionTime(..),
   SessionTheme(..),
   AssetsInfo(..),
@@ -279,9 +280,11 @@ mkExt DownloadZip      = ".zip"
 
 --------------------------------------------------------------------------------
 
+-- | Response for creating a session
 data SessionInfo = SessionInfo
-  { sessionId         :: !SessionId  -- ^ Unique session identifier
-  , sessionExpiresAt  :: !UTCTime    -- ^ Time when the session expires
+  { sessionId         :: !SessionId    -- ^ Unique session identifier
+  , sessionExpiresAt  :: !UTCTime      -- ^ Time when the session expires
+  , sessionUrls       :: !SessionUrls  -- ^ URLs for accessing the document
   }
   deriving (Eq, Show)
 
@@ -290,6 +293,7 @@ instance ToJSON SessionInfo where
     [ "type"        .= String "session"
     , "id"          .= toJSON sessionId
     , "expires_at"  .= toJSON sessionExpiresAt
+    , "urls"        .= toJSON sessionUrls
     ]
 
 instance FromJSON SessionInfo where
@@ -297,6 +301,30 @@ instance FromJSON SessionInfo where
     "session" :: Text <- o .: "type"
     SessionInfo <$> o .: "id"
                 <*> o .: "expires_at"
+                <*> o .: "urls"
+
+--------------------------------------------------------------------------------
+
+-- | URLs provided with the 'SessionInfo'
+data SessionUrls = SessionUrls
+  { sessionViewUrl      :: !ByteString  -- ^ For viewing on Box
+  , sessionAssetsUrl    :: !ByteString  -- ^ For Viewer.js
+  , sessionRealtimeUrl  :: !ByteString  -- ^ For Viewer.js with the realtime plugin
+  }
+  deriving (Eq, Show)
+
+instance ToJSON SessionUrls where
+  toJSON (SessionUrls {..}) = A.object
+    [ "view"      .= byteStringToJSON sessionViewUrl
+    , "assets"    .= byteStringToJSON sessionAssetsUrl
+    , "realtime"  .= byteStringToJSON sessionRealtimeUrl
+    ]
+
+instance FromJSON SessionUrls where
+  parseJSON = A.withObject "SessionUrls" $ \o -> do
+    SessionUrls <$> o `byByteString` "view"
+                <*> o `byByteString` "assets"
+                <*> o `byByteString` "realtime"
 
 --------------------------------------------------------------------------------
 
@@ -683,6 +711,9 @@ byteStringToJSON = String . TS.decodeUtf8
 
 withByteString :: String -> (ByteString -> A.Parser a) -> Value -> A.Parser a
 withByteString nm f = A.withText nm $ f . TS.encodeUtf8
+
+byByteString :: Object -> Text -> A.Parser ByteString
+byByteString obj lbl = obj .: lbl >>= return . TS.encodeUtf8
 
 firstUpper :: Text -> Text
 firstUpper = TS.uncons >>> maybe TS.empty (uncurry (TS.cons . toUpper))
