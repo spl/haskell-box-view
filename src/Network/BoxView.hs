@@ -77,10 +77,10 @@ instance Show ApiKey where
   show = fromByteString . fromApiKey
 
 instance ToJSON ApiKey where
-  toJSON = String . TS.decodeUtf8 . fromApiKey
+  toJSON = byteStringToJSON . fromApiKey
 
 instance FromJSON ApiKey where
-  parseJSON = A.withText "ApiKey" $ return . ApiKey . TS.encodeUtf8
+  parseJSON = withByteString "ApiKey" $ return . ApiKey
 
 --------------------------------------------------------------------------------
 
@@ -95,10 +95,10 @@ instance Show DocId where
   show = fromByteString . fromDocId
 
 instance ToJSON DocId where
-  toJSON = String . TS.decodeUtf8 . fromDocId
+  toJSON = byteStringToJSON . fromDocId
 
 instance FromJSON DocId where
-  parseJSON = A.withText "DocId" $ return . DocId . TS.encodeUtf8
+  parseJSON = withByteString "DocId" $ return . DocId
 
 --------------------------------------------------------------------------------
 
@@ -113,10 +113,10 @@ instance Show SessionId where
   show = fromByteString . fromSessionId
 
 instance ToJSON SessionId where
-  toJSON = String . TS.decodeUtf8 . fromSessionId
+  toJSON = byteStringToJSON . fromSessionId
 
 instance FromJSON SessionId where
-  parseJSON = A.withText "SessionId" $ return . SessionId . TS.encodeUtf8
+  parseJSON = withByteString "SessionId" $ return . SessionId
 
 --------------------------------------------------------------------------------
 
@@ -677,6 +677,12 @@ fromByteString = TS.unpack . TS.decodeUtf8
 
 readsBS :: Read a => ByteString -> [(a, String)]
 readsBS = reads . fromByteString
+
+byteStringToJSON :: ByteString -> Value
+byteStringToJSON = String . TS.decodeUtf8
+
+withByteString :: String -> (ByteString -> A.Parser a) -> Value -> A.Parser a
+withByteString nm f = A.withText nm $ f . TS.encodeUtf8
 
 firstUpper :: Text -> Text
 firstUpper = TS.uncons >>> maybe TS.empty (uncurry (TS.cons . toUpper))
