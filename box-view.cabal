@@ -1,5 +1,5 @@
 name:                   box-view
-version:                0.2
+version:                0.2.1
 synopsis:               Simple implementation of the Box View API
 homepage:               https://www.github.com/docmunch/haskell-box-view
 license:                MIT
@@ -27,7 +27,7 @@ library
   exposed-modules:
                         Web.Box.View
   build-depends:
-                        aeson >= 0.6 && < 0.8,
+                        aeson >= 0.6 && < 0.9,
                         attoparsec,
                         base >= 4.6 && < 5,
                         bytestring,
